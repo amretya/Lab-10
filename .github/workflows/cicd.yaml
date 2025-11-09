@@ -10,11 +10,17 @@ permissions:
   contents: read
 
 env:
-  SERVICE_NAME: terraform-test
+  # ---- GCP config ----
   PROJECT_ID: github-action-cve-1
   REGION: asia-southeast1
+
+  # ---- Artifact Registry (Docker) ----
   AR_HOST: asia-southeast1-docker.pkg.dev
-  DOCKER_IMAGE_URL: asia-southeast1-docker.pkg.dev/github-action-cve-1/cloud-run-source-deploy/cloud-run-source-deploy
+  AR_REPO: cloud-run-source-deploy        # use an existing repo or create it
+  SERVICE_NAME: terraform-test            # Cloud Run service name
+
+  # Full image URL used by docker & Terraform
+  IMAGE_URL: ${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}
 
 jobs:
   deploy:
@@ -24,52 +30,62 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---- Authenticate to GCP with your key (GCP_SA_KEY) ----
-      - name: Google Cloud Auth
+      # Fail fast if the secret isn't present
+      - name: Ensure GCP_SA_KEY secret exists
+        if: ${{ !secrets.GCP_SA_KEY }}
+        run: |
+          echo "Secret GCP_SA_KEY is missing (repo Settings → Secrets → Actions)."; exit 1
+
+      # ---------- GOOGLE AUTH ----------
+      - name: Google Cloud Auth (key-based)
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # ---- Install gcloud and set the project ----
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Authenticate Docker with Artifact Registry
-        run: gcloud auth configure-docker $AR_HOST
-
-      # ---- Build and push container (optional if Terraform builds for you) ----
-      - name: Build and Push Docker Image
+      - name: Verify identity & project
         run: |
-          docker build -t $DOCKER_IMAGE_URL:latest -f Dockerfile.prod .
-          docker push $DOCKER_IMAGE_URL:latest
+          echo "Active account:" && gcloud auth list --filter=status:ACTIVE --format='value(account)'
+          echo "Project:" && gcloud config get-value core/project
 
-      # ---- Terraform ----
+      # ---------- DOCKER / ARTIFACT REGISTRY ----------
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.AR_HOST }}
+
+      # If you have Dockerfile.prod, keep -f Dockerfile.prod. Otherwise change to Dockerfile.
+      - name: Build & Push image
+        run: |
+          docker build -t $IMAGE_URL:latest -f Dockerfile.prod .
+          docker push $IMAGE_URL:latest
+
+      # ---------- TERRAFORM ----------
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_wrapper: false
 
-      - name: Debug paths (optional)
-        run: |
-          pwd
-          ls -la
-          ls -la terraform
-
       - name: Terraform Init
         run: terraform -chdir=terraform init -input=false -no-color
 
-      # If you DO have terraform/terraform.tfvars, keep -var-file. If not, remove it.
+      # If you also keep terraform.tfvars in ./terraform, you can append:
+      #   -var-file=terraform.tfvars
       - name: Terraform Plan
         run: terraform -chdir=terraform plan -input=false -no-color -out=tfplan
         env:
-          TF_VAR_project_id: ${{ env.PROJECT_ID }}
-          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_project_id:  ${{ env.PROJECT_ID }}
+          TF_VAR_region:      ${{ env.REGION }}
+          TF_VAR_service_name:${{ env.SERVICE_NAME }}
+          TF_VAR_image_url:   ${{ env.IMAGE_URL }}:latest
 
-      - name: Terraform Apply
+      - name: Terraform Apply (only on main push)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform -chdir=terraform apply -input=false -no-color -auto-approve tfplan
         env:
-          TF_VAR_project_id: ${{ env.PROJECT_ID }}
-          TF_VAR_region: ${{ env.REGION }}
+          TF_VAR_project_id:  ${{ env.PROJECT_ID }}
+          TF_VAR_region:      ${{ env.REGION }}
+          TF_VAR_service_name:${{ env.SERVICE_NAME }}
+          TF_VAR_image_url:   ${{ env.IMAGE_URL }}:latest

@@ -2,15 +2,23 @@ terraform {
   required_providers {
     google = {
       source  = "hashicorp/google"
-      version = "~> 4.0"
+      version = "~> 5.0"
     }
   }
+}
 
-  required_version = ">= 1.0"
+variable "project_id" {
+  type    = string
+  default = "github-action-cve-1"
+}
+
+variable "region" {
+  type    = string
+  default = "asia-southeast1"
 }
 
 provider "google" {
-  project = var.project_id
-  region  = var.region
-  credentials = file("./keys.json")
+  project     = var.project_id
+  region      = var.region
+  credentials = file("key.json") # ← for local use only, not needed in GitHub Actions
 }
