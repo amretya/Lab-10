@@ -10,34 +10,28 @@ permissions:
   contents: read
 
 env:
-  # ---- GCP config ----
+  # --- GCP & Artifact Registry ---
   PROJECT_ID: github-action-cve-1
   REGION: asia-southeast1
-
-  # ---- Artifact Registry (Docker) ----
-  AR_HOST: asia-southeast1-docker.pkg.dev
-  AR_REPO: cloud-run-source-deploy        # use an existing repo or create it
-  SERVICE_NAME: terraform-test            # Cloud Run service name
-
-  # Full image URL used by docker & Terraform
-  IMAGE_URL: ${{ env.AR_HOST }}/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}
+  SERVICE_NAME: terraform-test
+  REPO_NAME: cloud-run-source-deploy
+  IMAGE_URL: asia-southeast1-docker.pkg.dev/github-action-cve-1/cloud-run-source-deploy/terraform-test
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # -------------------------------
+      # 1. Checkout Source Code
+      # -------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Fail fast if the secret isn't present
-      - name: Ensure GCP_SA_KEY secret exists
-        if: ${{ !secrets.GCP_SA_KEY }}
-        run: |
-          echo "Secret GCP_SA_KEY is missing (repo Settings → Secrets → Actions)."; exit 1
-
-      # ---------- GOOGLE AUTH ----------
-      - name: Google Cloud Auth (key-based)
+      # -------------------------------
+      # 2. Authenticate with GCP
+      # -------------------------------
+      - name: Google Cloud Auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
@@ -47,22 +41,27 @@ jobs:
         with:
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Verify identity & project
+      - name: Verify active account and project
         run: |
-          echo "Active account:" && gcloud auth list --filter=status:ACTIVE --format='value(account)'
-          echo "Project:" && gcloud config get-value core/project
+          echo "Active account:"
+          gcloud auth list --filter=status:ACTIVE --format="value(account)"
+          echo "Project:"
+          gcloud config get-value core/project
 
-      # ---------- DOCKER / ARTIFACT REGISTRY ----------
+      # -------------------------------
+      # 3. Build & Push Docker Image
+      # -------------------------------
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.AR_HOST }}
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # If you have Dockerfile.prod, keep -f Dockerfile.prod. Otherwise change to Dockerfile.
-      - name: Build & Push image
+      - name: Build and Push Docker Image
         run: |
-          docker build -t $IMAGE_URL:latest -f Dockerfile.prod .
-          docker push $IMAGE_URL:latest
+          docker build -t ${{ env.IMAGE_URL }}:latest -f Dockerfile.prod .
+          docker push ${{ env.IMAGE_URL }}:latest
 
-      # ---------- TERRAFORM ----------
+      # -------------------------------
+      # 4. Terraform Setup & Deploy
+      # -------------------------------
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -71,21 +70,23 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -input=false -no-color
 
-      # If you also keep terraform.tfvars in ./terraform, you can append:
-      #   -var-file=terraform.tfvars
       - name: Terraform Plan
         run: terraform -chdir=terraform plan -input=false -no-color -out=tfplan
         env:
-          TF_VAR_project_id:  ${{ env.PROJECT_ID }}
-          TF_VAR_region:      ${{ env.REGION }}
-          TF_VAR_service_name:${{ env.SERVICE_NAME }}
-          TF_VAR_image_url:   ${{ env.IMAGE_URL }}:latest
+          TF_VAR_project_id:   ${{ env.PROJECT_ID }}
+          TF_VAR_region:       ${{ env.REGION }}
+          TF_VAR_service_name: ${{ env.SERVICE_NAME }}
+          TF_VAR_image_url:    ${{ env.IMAGE_URL }}:latest
+          TF_VAR_cpu:          "2"
+          TF_VAR_memory:       "2Gi"
 
-      - name: Terraform Apply (only on main push)
+      - name: Terraform Apply (main only)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform -chdir=terraform apply -input=false -no-color -auto-approve tfplan
         env:
-          TF_VAR_project_id:  ${{ env.PROJECT_ID }}
-          TF_VAR_region:      ${{ env.REGION }}
-          TF_VAR_service_name:${{ env.SERVICE_NAME }}
-          TF_VAR_image_url:   ${{ env.IMAGE_URL }}:latest
+          TF_VAR_project_id:   ${{ env.PROJECT_ID }}
+          TF_VAR_region:       ${{ env.REGION }}
+          TF_VAR_service_name: ${{ env.SERVICE_NAME }}
+          TF_VAR_image_url:    ${{ env.IMAGE_URL }}:latest
+          TF_VAR_cpu:          "2"
+          TF_VAR_memory:       "2Gi"
