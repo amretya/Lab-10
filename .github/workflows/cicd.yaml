@@ -1,17 +1,20 @@
 name: Deploy to Google Cloud Run with Terraform
 
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
 env:
   SERVICE_NAME: terraform-test
   PROJECT_ID: github-action-cve-1
+  REGION: asia-southeast1
+  AR_HOST: asia-southeast1-docker.pkg.dev
   DOCKER_IMAGE_URL: asia-southeast1-docker.pkg.dev/github-action-cve-1/cloud-run-source-deploy/cloud-run-source-deploy
-
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
 
 jobs:
   deploy:
@@ -19,46 +22,54 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
+      # ---- Authenticate to GCP with your key (GCP_SA_KEY) ----
       - name: Google Cloud Auth
-        uses: 'google-github-actions/auth@v2'
+        uses: google-github-actions/auth@v2
         with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
-          project_id: ${{ env.PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
+      # ---- Install gcloud and set the project ----
       - name: Set up Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          service_account_key: ${{ secrets.GCP_SA_KEY}}
-          project_id: github-action-cve-1
+          project_id: ${{ env.PROJECT_ID }}
 
       - name: Authenticate Docker with Artifact Registry
-        run: |
-          gcloud auth configure-docker asia-southeast1-docker.pkg.dev
+        run: gcloud auth configure-docker $AR_HOST
 
+      # ---- Build and push container (optional if Terraform builds for you) ----
       - name: Build and Push Docker Image
         run: |
-          docker build -t ${{ env.DOCKER_IMAGE_URL }}:latest -f Dockerfile.prod .
-          docker push ${{ env.DOCKER_IMAGE_URL }}:latest
+          docker build -t $DOCKER_IMAGE_URL:latest -f Dockerfile.prod .
+          docker push $DOCKER_IMAGE_URL:latest
 
-      - name: Install Terraform
-        uses: hashicorp/setup-terraform@v2
+      # ---- Terraform ----
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.5.0  # Specify the version you are using
+          terraform_wrapper: false
+
+      - name: Debug paths (optional)
+        run: |
+          pwd
+          ls -la
+          ls -la terraform
 
       - name: Terraform Init
-        working-directory: terraform
-        run: terraform init
+        run: terraform -chdir=terraform init -input=false -no-color
 
+      # If you DO have terraform/terraform.tfvars, keep -var-file. If not, remove it.
       - name: Terraform Plan
-        working-directory: terraform
-        run: terraform plan -var-file="terraform.tfvars"
+        run: terraform -chdir=terraform plan -input=false -no-color -out=tfplan
         env:
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_project_id: ${{ env.PROJECT_ID }}
+          TF_VAR_region: ${{ env.REGION }}
 
       - name: Terraform Apply
-        working-directory: terraform
-        run: terraform apply -auto-approve -var-file="terraform.tfvars"
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform -chdir=terraform apply -input=false -no-color -auto-approve tfplan
         env:
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_project_id: ${{ env.PROJECT_ID }}
+          TF_VAR_region: ${{ env.REGION }}
