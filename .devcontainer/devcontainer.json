@@ -15,8 +15,13 @@
           "settings": {}
       }
     },
+    "portsAttributes": {
+        "8080": {
+            "autoForward": false
+        }
+    },
     "forwardPorts": [
-      "5678:5678"
+      "1234:8080"
     ],
     "workspaceMount": "source=${localWorkspaceFolder},target=/code,type=bind,consistency=delegated",
     "workspaceFolder": "/code",

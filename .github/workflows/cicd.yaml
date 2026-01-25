@@ -65,7 +65,7 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_wrapper: false
+          terraform_wrapper: falseZ
 
       - name: Terraform Init
         run: terraform -chdir=terraform init -input=false -no-color
