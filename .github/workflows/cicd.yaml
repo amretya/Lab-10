@@ -81,7 +81,7 @@ jobs:
             echo "Cloud Run service exists. Importing into Terraform state..."
             terraform -chdir=terraform import \
               google_cloud_run_service.default \
-              projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/services/${{ env.SERVICE_NAME }}
+              ${{ env.REGION }}/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}
           else
             echo "Cloud Run service does not exist. Skipping import."
           fi
