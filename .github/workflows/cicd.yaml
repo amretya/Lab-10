@@ -70,6 +70,22 @@ jobs:
       - name: Terraform Init
         run: terraform -chdir=terraform init -input=false -no-color
 
+      - name: Terraform Import Cloud Run (if exists)
+        run: |
+          SERVICE_EXISTS=$(gcloud run services list \
+            --region=${{ env.REGION }} \
+            --format="value(metadata.name)" \
+            --filter="metadata.name=${{ env.SERVICE_NAME }}")
+
+          if [ "$SERVICE_EXISTS" = "${{ env.SERVICE_NAME }}" ]; then
+            echo "Cloud Run service exists. Importing into Terraform state..."
+            terraform -chdir=terraform import \
+              google_cloud_run_service.default \
+              projects/${{ env.PROJECT_ID }}/locations/${{ env.REGION }}/services/${{ env.SERVICE_NAME }}
+          else
+            echo "Cloud Run service does not exist. Skipping import."
+          fi
+
       - name: Terraform Plan
         run: terraform -chdir=terraform plan -input=false -no-color -out=tfplan
         env:
