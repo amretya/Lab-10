@@ -11,11 +11,11 @@ permissions:
 
 env:
   # --- GCP & Artifact Registry ---
-  PROJECT_ID: github-action-cve-1
+  PROJECT_ID: github-action-cve-2
   REGION: asia-southeast1
   SERVICE_NAME: terraform-test
   REPO_NAME: cloud-run-source-deploy
-  IMAGE_URL: asia-southeast1-docker.pkg.dev/github-action-cve-1/cloud-run-source-deploy/terraform-test
+  IMAGE_URL: asia-southeast1-docker.pkg.dev/github-action-cve-2/cloud-run-source-deploy/terraform-test
 
 jobs:
   deploy:
